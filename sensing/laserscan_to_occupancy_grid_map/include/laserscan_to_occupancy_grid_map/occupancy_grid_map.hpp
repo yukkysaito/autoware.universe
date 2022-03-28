@@ -76,6 +76,8 @@ public:
 
   void updateOccupiedCells(const PointCloud2 & pointcloud);
 
+  void updateWithPointCloud(const PointCloud2 & raw_pointcloud, const PointCloud2 & obstacle_pointcloud);
+
   void updateOrigin(double new_origin_x, double new_origin_y) override;
 
 private:

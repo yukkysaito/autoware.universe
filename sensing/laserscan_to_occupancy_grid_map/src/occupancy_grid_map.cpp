@@ -180,6 +180,100 @@ void OccupancyGridMap::updateCellsByPointCloud(
   }
 }
 
+void OccupancyGridMap::updateWithPointCloud(
+  const PointCloud2 & raw_pointcloud, const PointCloud2 & obstacle_pointcloud,  const Pose & robot_pose)
+{
+  constexpr double ep = 0.001;
+  constexpr double min_angle = tier4_autoware_utils::deg2rad(-180.0);
+  constexpr double max_angle = tier4_autoware_utils::deg2rad(180.0);
+  constexpr double angle_increment = tier4_autoware_utils::deg2rad(1.0);
+  size_t angle_bin_size = (max_angle - min_angle) / angle_increment;
+
+  std::vector</*angle bin*/std::vector</*distance*/float>> obstacle_pointcloud_angle_bins;
+  std::vector</*angle bin*/std::vector</*distance*/float>> raw_pointcloud_angle_bins;
+  obstacle_pointcloud_angle_bins.resize(angle_bin_size);
+  raw_pointcloud_angle_bins.resize(angle_bin_size);
+  for (const auto & point; raw_pointcloud) {
+    const angle = atan2(point.y, point.x);
+    angle_bin_index = (angle - min_angle) / angle_increment;
+    raw_pointcloud_angle_bins.at(angle_bin_index).push_back(std::hypot(point.y, point.x));
+  }
+  for (const auto & point; obstacle_pointcloud) {
+    const angle = atan2(point.y, point.x);
+    angle_bin_index = (angle - min_angle) / angle_increment;
+    obstacle_pointcloud_angle_bins.at(angle_bin_index).push_back(std::hypot(point.y, point.x));
+  }
+
+    // sort by distance
+  for (const auto & obstacle_pointcloud_angle_bin; obstacle_pointcloud_angle_bins) {
+    std::sort(obstacle_pointcloud_angle_bin.begin(), obstacle_pointcloud_angle_bin.end());
+  }
+  for (const auto & raw_pointcloud_angle_bin; raw_pointcloud_angle_bins) {
+    std::sort(raw_pointcloud_angle_bin.begin(), raw_pointcloud_angle_bin.end());
+  }
+
+  // raw pointcloudの一番遠いところまでの点群を作ってfreespaceのray traceをする
+
+  //
+  constexpr double distance_margin = 0.5;
+  for (size_t bin_index = 0; bin_index < obstacle_pointcloud_angle_bins.size(); ++bin_index) {
+    auto & obstacle_pointcloud_angle_bin = obstacle_pointcloud_angle_bins.at(bin_index);
+    auto & raw_pointcloud_angle_bin = raw_pointcloud_angle_bin.at(bin_index);
+    auto raw_distance_iter = raw_pointcloud_angle_bin.begin();
+    const double angle = bin_index * angle_increment + min_angle;
+    const double cos = std::cos(angle);
+    const double sin = std::sin(angle);
+
+    for (size_t dist_index = 0; dist_index < obstacle_pointcloud_angle_bin.size(); ++dist_index) {
+      while (raw_distance_iter != raw_pointcloud_angle_bin.end()) {
+        if (*raw_distance_iter < obstacle_pointcloud_angle_bin.at(dist_index) + distance_margin)
+          raw_distance_iter++;
+        else
+          break;
+      }
+
+      if (dist_index + 1 == obstacle_pointcloud_angle_bin.size()) {
+        // なにか必要
+        double target_x = obstacle_pointcloud_angle_bin.at(dist_index) * cos;
+        double target_y = obstacle_pointcloud_angle_bin.at(dist_index) * sin;
+        setCellValue(target, occupied);
+      }
+
+      auto next_obstacle_point_distance = std::abs(
+        obstacle_pointcloud_angle_bin.at(dist_index + 1) -
+        obstacle_pointcloud_angle_bin.at(dist_index));
+      auto next_raw_distance =
+        std::abs(obstacle_pointcloud_angle_bin.at(dist_index) - *raw_distance_iter);
+
+      if (next_obstacle_distance <= distance_margin) {
+        double source_x = obstacle_pointcloud_angle_bin.at(dist_index) * cos;
+        double source_y = obstacle_pointcloud_angle_bin.at(dist_index) * sin;
+        double target_x = obstacle_pointcloud_angle_bin.at(dist_index + 1) * cos;
+        double target_y = obstacle_pointcloud_angle_bin.at(dist_index + 1) * sin;
+        raytrace(source, target, occupied);
+      } else  {
+        if (next_raw_distance < next_obstacle_point_distance) {
+          double source_x = obstacle_pointcloud_angle_bin.at(dist_index) * cos;
+          double source_y = obstacle_pointcloud_angle_bin.at(dist_index) * sin;
+          double target_x = *raw_distance_iter * cos;
+          double target_y = *raw_distance_iter * sin;
+          auto cell_value = getCellValue(target);
+          raytrace(source, target, unknown);
+          setCellValue(target, cell_value);
+        } else {
+          double source_x = obstacle_pointcloud_angle_bin.at(dist_index) * cos;
+          double source_y = obstacle_pointcloud_angle_bin.at(dist_index) * sin;
+          double target_x = obstacle_pointcloud_angle_bin.at(dist_index + 1) * cos;
+          double target_y = obstacle_pointcloud_angle_bin.at(dist_index + 1) * sin;
+          auto cell_value = getCellValue(target);
+          raytrace(source, target, unknown);
+          setCellValue(target, cell_value);
+        }
+      }
+    }
+  }
+}
+
 void OccupancyGridMap::raytraceFreespace(const PointCloud2 & pointcloud, const Pose & robot_pose)
 {
   unsigned int x0{};
