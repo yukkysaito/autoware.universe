@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "laserscan_to_occupancy_grid_map/laserscan_to_occupancy_grid_map_node.hpp"
+#include "laserscan_to_occupancy_grid_map/pointcloud_to_occupancy_grid_map_node.hpp"
 
 #include "laserscan_to_occupancy_grid_map/cost_value.hpp"
 
@@ -229,9 +229,7 @@ void OccupancyGridMapNode::onLaserscanPointCloud2WithObstacleAndRaw(
   oneshot_occupancy_grid_map.updateOrigin(
     pose.position.x - oneshot_occupancy_grid_map.getSizeInMetersX() / 2,
     pose.position.y - oneshot_occupancy_grid_map.getSizeInMetersY() / 2);
-  oneshot_occupancy_grid_map.updateFreespaceCells(trans_raw_pc);
-  oneshot_occupancy_grid_map.raytrace2D(trans_laserscan_pc, pose);
-  oneshot_occupancy_grid_map.updateOccupiedCells(trans_obstacle_pc);
+  oneshot_occupancy_grid_map.updateWithPointCloud(trans_raw_pc, trans_obstacle_pc, pose);
 
   // Update with bayes filter
   occupancy_grid_map_updater_ptr_->update(oneshot_occupancy_grid_map);

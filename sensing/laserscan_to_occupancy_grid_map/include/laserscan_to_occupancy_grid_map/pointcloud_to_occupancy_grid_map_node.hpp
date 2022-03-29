@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef LASERSCAN_TO_OCCUPANCY_GRID_MAP__LASERSCAN_TO_OCCUPANCY_GRID_MAP_NODE_HPP_
-#define LASERSCAN_TO_OCCUPANCY_GRID_MAP__LASERSCAN_TO_OCCUPANCY_GRID_MAP_NODE_HPP_
+#ifndef LASERSCAN_TO_OCCUPANCY_GRID_MAP__POINTCLOUD_TO_OCCUPANCY_GRID_MAP_NODE_HPP_
+#define LASERSCAN_TO_OCCUPANCY_GRID_MAP__POINTCLOUD_TO_OCCUPANCY_GRID_MAP_NODE_HPP_
 
 #include "laserscan_to_occupancy_grid_map/occupancy_grid_map.hpp"
 #include "laserscan_to_occupancy_grid_map/updater/occupancy_grid_map_binary_bayes_filter_updater.hpp"
@@ -97,4 +97,4 @@ private:
 
 }  // namespace occupancy_grid_map
 
-#endif  // LASERSCAN_TO_OCCUPANCY_GRID_MAP__LASERSCAN_TO_OCCUPANCY_GRID_MAP_NODE_HPP_
+#endif  // LASERSCAN_TO_OCCUPANCY_GRID_MAP__POINTCLOUD_TO_OCCUPANCY_GRID_MAP_NODE_HPP_

@@ -70,21 +70,19 @@ public:
   OccupancyGridMap(
     const unsigned int cells_size_x, const unsigned int cells_size_y, const float resolution);
 
-  void raytrace2D(const PointCloud2 & pointcloud, const Pose & robot_pose);
-
-  void updateFreespaceCells(const PointCloud2 & pointcloud);
-
-  void updateOccupiedCells(const PointCloud2 & pointcloud);
-
-  void updateWithPointCloud(const PointCloud2 & raw_pointcloud, const PointCloud2 & obstacle_pointcloud);
+  void updateWithPointCloud(
+    const PointCloud2 & raw_pointcloud, const PointCloud2 & obstacle_pointcloud,
+    const Pose & robot_pose);
 
   void updateOrigin(double new_origin_x, double new_origin_y) override;
 
+  void setCellValue(const double wx, const double wy, const unsigned char cost);
+
+  void raytrace(
+    const double source_x, const double source_y, const double target_x, const double target_y,
+    const unsigned char cost);
+
 private:
-  void raytraceFreespace(const PointCloud2 & pointcloud, const Pose & robot_pose);
-
-  void updateCellsByPointCloud(const PointCloud2 & pointcloud, const unsigned char cost);
-
   bool worldToMap(double wx, double wy, unsigned int & mx, unsigned int & my) const;
 
   rclcpp::Logger logger_{rclcpp::get_logger("occupancy_grid_map")};

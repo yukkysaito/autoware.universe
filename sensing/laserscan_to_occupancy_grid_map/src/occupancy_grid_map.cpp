@@ -55,6 +55,8 @@
 
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 
+#include <tier4_autoware_utils/tier4_autoware_utils.hpp>
+
 #include <algorithm>
 
 namespace costmap_2d
@@ -134,54 +136,9 @@ void OccupancyGridMap::updateOrigin(double new_origin_x, double new_origin_y)
   delete[] local_map;
 }
 
-void OccupancyGridMap::raytrace2D(const PointCloud2 & pointcloud, const Pose & robot_pose)
-{
-  // freespace
-  raytraceFreespace(pointcloud, robot_pose);
-
-  // occupied
-  MarkCell marker(costmap_, occupancy_cost_value::LETHAL_OBSTACLE);
-  for (PointCloud2ConstIterator<float> iter_x(pointcloud, "x"), iter_y(pointcloud, "y");
-       iter_x != iter_x.end(); ++iter_x, ++iter_y) {
-    unsigned int mx, my;
-    if (!worldToMap(*iter_x, *iter_y, mx, my)) {
-      RCLCPP_DEBUG(logger_, "Computing map coords failed");
-      continue;
-    }
-    const unsigned int index = getIndex(mx, my);
-    marker(index);
-  }
-}
-
-void OccupancyGridMap::updateFreespaceCells(const PointCloud2 & pointcloud)
-{
-  updateCellsByPointCloud(pointcloud, occupancy_cost_value::FREE_SPACE);
-}
-
-void OccupancyGridMap::updateOccupiedCells(const PointCloud2 & pointcloud)
-{
-  updateCellsByPointCloud(pointcloud, occupancy_cost_value::LETHAL_OBSTACLE);
-}
-
-void OccupancyGridMap::updateCellsByPointCloud(
-  const PointCloud2 & pointcloud, const unsigned char cost)
-{
-  MarkCell marker(costmap_, cost);
-  for (PointCloud2ConstIterator<float> iter_x(pointcloud, "x"), iter_y(pointcloud, "y");
-       iter_x != iter_x.end(); ++iter_x, ++iter_y) {
-    unsigned int mx{};
-    unsigned int my{};
-    if (!worldToMap(*iter_x, *iter_y, mx, my)) {
-      RCLCPP_DEBUG(logger_, "Computing map coords failed");
-      continue;
-    }
-    const unsigned int index = getIndex(mx, my);
-    marker(index);
-  }
-}
-
 void OccupancyGridMap::updateWithPointCloud(
-  const PointCloud2 & raw_pointcloud, const PointCloud2 & obstacle_pointcloud,  const Pose & robot_pose)
+  const PointCloud2 & raw_pointcloud, const PointCloud2 & obstacle_pointcloud,
+  const Pose & robot_pose)
 {
   constexpr double ep = 0.001;
   constexpr double min_angle = tier4_autoware_utils::deg2rad(-180.0);
@@ -189,42 +146,53 @@ void OccupancyGridMap::updateWithPointCloud(
   constexpr double angle_increment = tier4_autoware_utils::deg2rad(1.0);
   size_t angle_bin_size = (max_angle - min_angle) / angle_increment;
 
-  std::vector</*angle bin*/std::vector</*distance*/float>> obstacle_pointcloud_angle_bins;
-  std::vector</*angle bin*/std::vector</*distance*/float>> raw_pointcloud_angle_bins;
+  std::vector</*angle bin*/ std::vector</*distance*/ float>> obstacle_pointcloud_angle_bins;
+  std::vector</*angle bin*/ std::vector</*distance*/ float>> raw_pointcloud_angle_bins;
   obstacle_pointcloud_angle_bins.resize(angle_bin_size);
   raw_pointcloud_angle_bins.resize(angle_bin_size);
-  for (const auto & point; raw_pointcloud) {
-    const angle = atan2(point.y, point.x);
-    angle_bin_index = (angle - min_angle) / angle_increment;
-    raw_pointcloud_angle_bins.at(angle_bin_index).push_back(std::hypot(point.y, point.x));
-  }
-  for (const auto & point; obstacle_pointcloud) {
-    const angle = atan2(point.y, point.x);
-    angle_bin_index = (angle - min_angle) / angle_increment;
-    obstacle_pointcloud_angle_bins.at(angle_bin_index).push_back(std::hypot(point.y, point.x));
+  for (PointCloud2ConstIterator<float> iter_x(raw_pointcloud, "x"), iter_y(raw_pointcloud, "y");
+       iter_x != iter_x.end(); ++iter_x, ++iter_y) {
+    const double angle = atan2(*iter_y, *iter_x);
+    const int angle_bin_index = (angle - min_angle) / angle_increment;
+    raw_pointcloud_angle_bins.at(angle_bin_index).push_back(std::hypot(*iter_y, *iter_x));
   }
 
-    // sort by distance
-  for (const auto & obstacle_pointcloud_angle_bin; obstacle_pointcloud_angle_bins) {
+  for (PointCloud2ConstIterator<float> iter_x(obstacle_pointcloud, "x"),
+       iter_y(obstacle_pointcloud, "y");
+       iter_x != iter_x.end(); ++iter_x, ++iter_y) {
+    const double angle = atan2(*iter_y, *iter_x);
+    int angle_bin_index = (angle - min_angle) / angle_increment;
+    obstacle_pointcloud_angle_bins.at(angle_bin_index).push_back(std::hypot(*iter_y, *iter_x));
+  }
+
+  // sort by distance
+  for (auto & obstacle_pointcloud_angle_bin : obstacle_pointcloud_angle_bins) {
     std::sort(obstacle_pointcloud_angle_bin.begin(), obstacle_pointcloud_angle_bin.end());
   }
-  for (const auto & raw_pointcloud_angle_bin; raw_pointcloud_angle_bins) {
+  for (auto & raw_pointcloud_angle_bin : raw_pointcloud_angle_bins) {
     std::sort(raw_pointcloud_angle_bin.begin(), raw_pointcloud_angle_bin.end());
   }
 
-  // raw pointcloudの一番遠いところまでの点群を作ってfreespaceのray traceをする
-
-  //
   constexpr double distance_margin = 0.5;
   for (size_t bin_index = 0; bin_index < obstacle_pointcloud_angle_bins.size(); ++bin_index) {
     auto & obstacle_pointcloud_angle_bin = obstacle_pointcloud_angle_bins.at(bin_index);
-    auto & raw_pointcloud_angle_bin = raw_pointcloud_angle_bin.at(bin_index);
+    auto & raw_pointcloud_angle_bin = raw_pointcloud_angle_bins.at(bin_index);
     auto raw_distance_iter = raw_pointcloud_angle_bin.begin();
     const double angle = bin_index * angle_increment + min_angle;
     const double cos = std::cos(angle);
     const double sin = std::sin(angle);
 
+    // Initialize the distance to the final point with freespace
+    const double end_distance =
+      obstacle_pointcloud_angle_bin.back() + distance_margin < raw_pointcloud_angle_bin.back()
+        ? raw_pointcloud_angle_bin.back()
+        : obstacle_pointcloud_angle_bin.back();
+    double target_x = end_distance * cos;
+    double target_y = end_distance * sin;
+    raytrace(robot_pose.position.x, robot_pose.position.y, target_x, target_y, occupancy_cost_value::FREE_SPACE);
+
     for (size_t dist_index = 0; dist_index < obstacle_pointcloud_angle_bin.size(); ++dist_index) {
+      // Calculate next raw point from obstacle point
       while (raw_distance_iter != raw_pointcloud_angle_bin.end()) {
         if (*raw_distance_iter < obstacle_pointcloud_angle_bin.at(dist_index) + distance_margin)
           raw_distance_iter++;
@@ -232,55 +200,88 @@ void OccupancyGridMap::updateWithPointCloud(
           break;
       }
 
+      // There is no point far than the obstacle point.
+      const bool no_freespace_point = (raw_distance_iter == raw_pointcloud_angle_bin.end());
+
       if (dist_index + 1 == obstacle_pointcloud_angle_bin.size()) {
-        // なにか必要
-        double target_x = obstacle_pointcloud_angle_bin.at(dist_index) * cos;
-        double target_y = obstacle_pointcloud_angle_bin.at(dist_index) * sin;
-        setCellValue(target, occupied);
+        double source_x = obstacle_pointcloud_angle_bin.at(dist_index) * cos;
+        double source_y = obstacle_pointcloud_angle_bin.at(dist_index) * sin;
+        if (!no_freespace_point) {
+          double target_x = *raw_distance_iter * cos;
+          double target_y = *raw_distance_iter * sin;
+          raytrace(source_x, source_y, target_x, target_y, occupancy_cost_value::NO_INFORMATION);
+          setCellValue(source_x, source_y, occupancy_cost_value::FREE_SPACE);
+        }
+        setCellValue(target_x, target_y, occupancy_cost_value::LETHAL_OBSTACLE);
+        continue;
       }
 
       auto next_obstacle_point_distance = std::abs(
         obstacle_pointcloud_angle_bin.at(dist_index + 1) -
         obstacle_pointcloud_angle_bin.at(dist_index));
-      auto next_raw_distance =
-        std::abs(obstacle_pointcloud_angle_bin.at(dist_index) - *raw_distance_iter);
-
-      if (next_obstacle_distance <= distance_margin) {
+      if (next_obstacle_point_distance <= distance_margin) {
         double source_x = obstacle_pointcloud_angle_bin.at(dist_index) * cos;
         double source_y = obstacle_pointcloud_angle_bin.at(dist_index) * sin;
         double target_x = obstacle_pointcloud_angle_bin.at(dist_index + 1) * cos;
         double target_y = obstacle_pointcloud_angle_bin.at(dist_index + 1) * sin;
-        raytrace(source, target, occupied);
-      } else  {
-        if (next_raw_distance < next_obstacle_point_distance) {
-          double source_x = obstacle_pointcloud_angle_bin.at(dist_index) * cos;
-          double source_y = obstacle_pointcloud_angle_bin.at(dist_index) * sin;
-          double target_x = *raw_distance_iter * cos;
-          double target_y = *raw_distance_iter * sin;
-          auto cell_value = getCellValue(target);
-          raytrace(source, target, unknown);
-          setCellValue(target, cell_value);
-        } else {
-          double source_x = obstacle_pointcloud_angle_bin.at(dist_index) * cos;
-          double source_y = obstacle_pointcloud_angle_bin.at(dist_index) * sin;
-          double target_x = obstacle_pointcloud_angle_bin.at(dist_index + 1) * cos;
-          double target_y = obstacle_pointcloud_angle_bin.at(dist_index + 1) * sin;
-          auto cell_value = getCellValue(target);
-          raytrace(source, target, unknown);
-          setCellValue(target, cell_value);
-        }
+        raytrace(source_x, source_y, target_x, target_y, occupancy_cost_value::LETHAL_OBSTACLE);
+        continue;
+      } else if (no_freespace_point) {
+        double source_x = obstacle_pointcloud_angle_bin.at(dist_index) * cos;
+        double source_y = obstacle_pointcloud_angle_bin.at(dist_index) * sin;
+        double target_x = obstacle_pointcloud_angle_bin.at(dist_index + 1) * cos;
+        double target_y = obstacle_pointcloud_angle_bin.at(dist_index + 1) * sin;
+        raytrace(source_x, source_y, target_x, target_y, occupancy_cost_value::NO_INFORMATION);
+        setCellValue(source_x, source_y, occupancy_cost_value::LETHAL_OBSTACLE);
+        continue;
+      }
+
+      auto next_raw_distance =
+        std::abs(obstacle_pointcloud_angle_bin.at(dist_index) - *raw_distance_iter);
+      if (next_raw_distance < next_obstacle_point_distance) {
+        double source_x = obstacle_pointcloud_angle_bin.at(dist_index) * cos;
+        double source_y = obstacle_pointcloud_angle_bin.at(dist_index) * sin;
+        double target_x = *raw_distance_iter * cos;
+        double target_y = *raw_distance_iter * sin;
+        raytrace(source_x, source_y, target_x, target_y, occupancy_cost_value::NO_INFORMATION);
+        setCellValue(target_x, target_y, occupancy_cost_value::LETHAL_OBSTACLE);
+        setCellValue(source_x, source_y, occupancy_cost_value::FREE_SPACE);
+        continue;
+      } else {
+        double source_x = obstacle_pointcloud_angle_bin.at(dist_index) * cos;
+        double source_y = obstacle_pointcloud_angle_bin.at(dist_index) * sin;
+        double target_x = obstacle_pointcloud_angle_bin.at(dist_index + 1) * cos;
+        double target_y = obstacle_pointcloud_angle_bin.at(dist_index + 1) * sin;
+        raytrace(source_x, source_y, target_x, target_y, occupancy_cost_value::NO_INFORMATION);
+        setCellValue(source_x, source_y, occupancy_cost_value::LETHAL_OBSTACLE);
+        continue;
       }
     }
   }
 }
 
-void OccupancyGridMap::raytraceFreespace(const PointCloud2 & pointcloud, const Pose & robot_pose)
+void OccupancyGridMap::setCellValue(const double wx, const double wy, const unsigned char cost)
+{
+  MarkCell marker(costmap_, cost);
+  unsigned int mx{};
+  unsigned int my{};
+  if (!worldToMap(wx, wy, mx, my)) {
+    RCLCPP_DEBUG(logger_, "Computing map coords failed");
+    return;
+  }
+  const unsigned int index = getIndex(mx, my);
+  marker(index);
+}
+
+void OccupancyGridMap::raytrace(
+  const double source_x, const double source_y, const double target_x, const double target_y,
+  const unsigned char cost)
 {
   unsigned int x0{};
   unsigned int y0{};
-  const double ox{robot_pose.position.x};
-  const double oy{robot_pose.position.y};
-  if (!worldToMap(robot_pose.position.x, robot_pose.position.y, x0, y0)) {
+  const double ox{source_x};
+  const double oy{source_y};
+  if (!worldToMap(ox, oy, x0, y0)) {
     RCLCPP_WARN_THROTTLE(
       logger_, clock_, 1000,
       "The origin for the sensor at (%.2f, %.2f) is out of map bounds. So, the costmap cannot "
@@ -294,53 +295,50 @@ void OccupancyGridMap::raytraceFreespace(const PointCloud2 & pointcloud, const P
   const double map_end_x = origin_x + size_x_ * resolution_;
   const double map_end_y = origin_y + size_y_ * resolution_;
 
-  for (PointCloud2ConstIterator<float> iter_x(pointcloud, "x"), iter_y(pointcloud, "y");
-       iter_x != iter_x.end(); ++iter_x, ++iter_y) {
-    double wx = *iter_x;
-    double wy = *iter_y;
+  double wx = target_x;
+  double wy = target_y;
 
-    // now we also need to make sure that the endpoint we're ray-tracing
-    // to isn't off the costmap and scale if necessary
-    const double a = wx - ox;
-    const double b = wy - oy;
+  // now we also need to make sure that the endpoint we're ray-tracing
+  // to isn't off the costmap and scale if necessary
+  const double a = wx - ox;
+  const double b = wy - oy;
 
-    // the minimum value to raytrace from is the origin
-    if (wx < origin_x) {
-      const double t = (origin_x - ox) / a;
-      wx = origin_x;
-      wy = oy + b * t;
-    }
-    if (wy < origin_y) {
-      const double t = (origin_y - oy) / b;
-      wx = ox + a * t;
-      wy = origin_y;
-    }
-
-    // the maximum value to raytrace to is the end of the map
-    if (wx > map_end_x) {
-      const double t = (map_end_x - ox) / a;
-      wx = map_end_x - .001;
-      wy = oy + b * t;
-    }
-    if (wy > map_end_y) {
-      const double t = (map_end_y - oy) / b;
-      wx = ox + a * t;
-      wy = map_end_y - .001;
-    }
-
-    // now that the vector is scaled correctly... we'll get the map coordinates of its endpoint
-    unsigned int x1{};
-    unsigned int y1{};
-
-    // check for legality just in case
-    if (!worldToMap(wx, wy, x1, y1)) {
-      continue;
-    }
-
-    constexpr unsigned int cell_raytrace_range = 10000;  // large number to ignore range threshold
-    MarkCell marker(costmap_, occupancy_cost_value::FREE_SPACE);
-    raytraceLine(marker, x0, y0, x1, y1, cell_raytrace_range);
+  // the minimum value to raytrace from is the origin
+  if (wx < origin_x) {
+    const double t = (origin_x - ox) / a;
+    wx = origin_x;
+    wy = oy + b * t;
   }
+  if (wy < origin_y) {
+    const double t = (origin_y - oy) / b;
+    wx = ox + a * t;
+    wy = origin_y;
+  }
+
+  // the maximum value to raytrace to is the end of the map
+  if (wx > map_end_x) {
+    const double t = (map_end_x - ox) / a;
+    wx = map_end_x - .001;
+    wy = oy + b * t;
+  }
+  if (wy > map_end_y) {
+    const double t = (map_end_y - oy) / b;
+    wx = ox + a * t;
+    wy = map_end_y - .001;
+  }
+
+  // now that the vector is scaled correctly... we'll get the map coordinates of its endpoint
+  unsigned int x1{};
+  unsigned int y1{};
+
+  // check for legality just in case
+  if (!worldToMap(wx, wy, x1, y1)) {
+    return;
+  }
+
+  constexpr unsigned int cell_raytrace_range = 10000;  // large number to ignore range threshold
+  MarkCell marker(costmap_, cost);
+  raytraceLine(marker, x0, y0, x1, y1, cell_raytrace_range);
 }
 
 }  // namespace costmap_2d

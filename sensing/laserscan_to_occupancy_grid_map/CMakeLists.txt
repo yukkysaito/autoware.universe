@@ -17,7 +17,7 @@ find_package(PCL REQUIRED)
 ament_auto_find_build_dependencies()
 
 ament_auto_add_library(laserscan_to_occupancy_grid_map SHARED
-  src/laserscan_to_occupancy_grid_map_node.cpp
+  src/pointcloud_to_occupancy_grid_map_node.cpp
   src/occupancy_grid_map.cpp
   src/updater/occupancy_grid_map_binary_bayes_filter_updater.cpp
 )
