@@ -1,1 +1,27 @@
-[{"version": "tier4-proposal", "title": "tier4-proposal", "aliases": []}, {"version": "pr-344", "title": "pr-344", "aliases": []}, {"version": "pr-245", "title": "pr-245", "aliases": []}, {"version": "pr-233", "title": "pr-233", "aliases": []}]
+[
+  {
+    "version": "tier4-proposal",
+    "title": "tier4-proposal",
+    "aliases": []
+  },
+  {
+    "version": "pr-344",
+    "title": "pr-344",
+    "aliases": []
+  },
+  {
+    "version": "pr-245",
+    "title": "pr-245",
+    "aliases": []
+  },
+  {
+    "version": "pr-233",
+    "title": "pr-233",
+    "aliases": []
+  },
+  {
+    "version": "main",
+    "title": "main",
+    "aliases": []
+  }
+]
