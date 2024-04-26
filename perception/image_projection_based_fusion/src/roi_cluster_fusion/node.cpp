@@ -41,12 +41,12 @@ Eigen::Vector2d calcRawImagePointFromPoint3D(
   return Eigen::Vector2d(raw_image_point.x, raw_image_point.y);
 }
 
-Eigen::Vector2d calcRectifiedImagePointFromPoint3D(
-  const image_geometry::PinholeCameraModel & pinhole_camera_model, const cv::Point3d & point3d)
-{
-  cv::Point2d rectified_image_point = pinhole_camera_model.project3dToPixel(point3d);
-  return Eigen::Vector2d(rectified_image_point.x, rectified_image_point.y);
-}
+// Eigen::Vector2d calcRectifiedImagePointFromPoint3D(
+//   const image_geometry::PinholeCameraModel & pinhole_camera_model, const cv::Point3d & point3d)
+// {
+//   cv::Point2d rectified_image_point = pinhole_camera_model.project3dToPixel(point3d);
+//   return Eigen::Vector2d(rectified_image_point.x, rectified_image_point.y);
+// }
 
 }  // namespace
 
@@ -155,13 +155,8 @@ void RoiClusterFusionNode::fuseOnSingleImage(
 
       Eigen::Vector2d projected_point;
 
-      // if (camera_info.do_rectify) {
       projected_point =
         calcRawImagePointFromPoint3D(pinhole_camera_model, cv::Point3d(*iter_x, *iter_y, *iter_z));
-      // } else {
-      //   projected_point = calcRectifiedImagePointFromPoint3D(
-      //     pinhole_camera_model, cv::Point3d(*iter_x, *iter_y, *iter_z));
-      // }
 
       if (
         0 <= static_cast<int>(projected_point.x()) &&
