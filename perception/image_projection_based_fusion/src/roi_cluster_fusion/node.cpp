@@ -28,6 +28,28 @@
 #include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>
 #endif
 
+#include <image_geometry/pinhole_camera_model.h>
+
+namespace
+{
+Eigen::Vector2d calcRawImagePointFromPoint3D(
+  const image_geometry::PinholeCameraModel & pinhole_camera_model, const cv::Point3d & point3d)
+{
+  cv::Point2d rectified_image_point = pinhole_camera_model.project3dToPixel(point3d);
+
+  cv::Point2d raw_image_point = pinhole_camera_model.unrectifyPoint(rectified_image_point);
+  return Eigen::Vector2d(raw_image_point.x, raw_image_point.y);
+}
+
+Eigen::Vector2d calcRectifiedImagePointFromPoint3D(
+  const image_geometry::PinholeCameraModel & pinhole_camera_model, const cv::Point3d & point3d)
+{
+  cv::Point2d rectified_image_point = pinhole_camera_model.project3dToPixel(point3d);
+  return Eigen::Vector2d(rectified_image_point.x, rectified_image_point.y);
+}
+
+}  // namespace
+
 namespace image_projection_based_fusion
 {
 
@@ -83,10 +105,8 @@ void RoiClusterFusionNode::fuseOnSingleImage(
   const DetectedObjectsWithFeature & input_roi_msg,
   const sensor_msgs::msg::CameraInfo & camera_info, DetectedObjectsWithFeature & output_cluster_msg)
 {
-  Eigen::Matrix4d projection;
-  projection << camera_info.p.at(0), camera_info.p.at(1), camera_info.p.at(2), camera_info.p.at(3),
-    camera_info.p.at(4), camera_info.p.at(5), camera_info.p.at(6), camera_info.p.at(7),
-    camera_info.p.at(8), camera_info.p.at(9), camera_info.p.at(10), camera_info.p.at(11);
+  image_geometry::PinholeCameraModel pinhole_camera_model;
+  pinhole_camera_model.fromCameraInfo(camera_info);
 
   // get transform from cluster frame id to camera optical frame id
   geometry_msgs::msg::TransformStamped transform_stamped;
@@ -133,23 +153,27 @@ void RoiClusterFusionNode::fuseOnSingleImage(
         continue;
       }
 
-      Eigen::Vector4d projected_point =
-        projection * Eigen::Vector4d(*iter_x, *iter_y, *iter_z, 1.0);
-      Eigen::Vector2d normalized_projected_point = Eigen::Vector2d(
-        projected_point.x() / projected_point.z(), projected_point.y() / projected_point.z());
+      Eigen::Vector2d projected_point;
+
+      // if (camera_info.do_rectify) {
+      projected_point =
+        calcRawImagePointFromPoint3D(pinhole_camera_model, cv::Point3d(*iter_x, *iter_y, *iter_z));
+      // } else {
+      //   projected_point = calcRectifiedImagePointFromPoint3D(
+      //     pinhole_camera_model, cv::Point3d(*iter_x, *iter_y, *iter_z));
+      // }
+
       if (
-        0 <= static_cast<int>(normalized_projected_point.x()) &&
-        static_cast<int>(normalized_projected_point.x()) <=
-          static_cast<int>(camera_info.width) - 1 &&
-        0 <= static_cast<int>(normalized_projected_point.y()) &&
-        static_cast<int>(normalized_projected_point.y()) <=
-          static_cast<int>(camera_info.height) - 1) {
-        min_x = std::min(static_cast<int>(normalized_projected_point.x()), min_x);
-        min_y = std::min(static_cast<int>(normalized_projected_point.y()), min_y);
-        max_x = std::max(static_cast<int>(normalized_projected_point.x()), max_x);
-        max_y = std::max(static_cast<int>(normalized_projected_point.y()), max_y);
-        projected_points.push_back(normalized_projected_point);
-        if (debugger_) debugger_->obstacle_points_.push_back(normalized_projected_point);
+        0 <= static_cast<int>(projected_point.x()) &&
+        static_cast<int>(projected_point.x()) <= static_cast<int>(camera_info.width) - 1 &&
+        0 <= static_cast<int>(projected_point.y()) &&
+        static_cast<int>(projected_point.y()) <= static_cast<int>(camera_info.height) - 1) {
+        min_x = std::min(static_cast<int>(projected_point.x()), min_x);
+        min_y = std::min(static_cast<int>(projected_point.y()), min_y);
+        max_x = std::max(static_cast<int>(projected_point.x()), max_x);
+        max_y = std::max(static_cast<int>(projected_point.y()), max_y);
+        projected_points.push_back(projected_point);
+        if (debugger_) debugger_->obstacle_points_.push_back(projected_point);
       }
     }
     if (projected_points.empty()) {
