@@ -24,7 +24,7 @@ jobs:
     outputs:
       cuda_job_is_needed: ${{ steps.check.outputs.any_changed }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Check if relevant files changed
         id: check

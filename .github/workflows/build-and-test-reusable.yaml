@@ -65,7 +65,7 @@ jobs:
       coverage-files: ${{ steps.test.outputs.coverage-report-files }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 1
 
@@ -182,7 +182,7 @@ jobs:
     if: ${{ needs.build-and-test.outputs.coverage-files != '' }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download coverage artifacts
         uses: actions/download-artifact@v4
